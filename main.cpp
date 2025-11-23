@@ -1,24 +1,184 @@
-#include "SpaceShooter.h"
-#include<raylib.h>
-#include<iostream>
+#include <iostream>
 #include <fstream>
+#include <raylib.h>
 using namespace std;
 
+// Game constants
+const int SCREEN_WIDTH = 800;
+const int SCREEN_HEIGHT = 600;
+const int MAX_ENEMIES = 30;
+const int MAX_BULLETS = 10;
+const int MAX_BOSS_BULLETS = 20;
+const int MAX_LEVEL = 5;
+
+// Boss constants
+const int BOSS_WIDTH = 200;
+const int BOSS_HEIGHT = 200;
+const float BOSS_SPEED = 2.0f;
+const int BOSS_INITIAL_HEALTH = 100;
+
+// Game states
+enum GameStateEnum {
+    STATE_MENU,
+    STATE_PLAYING,
+    STATE_GAME_OVER,
+    STATE_WIN,
+    STATE_BOSS_FIGHT
+};
+
+// Structures for game entities and state
+struct Player {
+    float x;
+    float y;
+    int width;
+    int height;
+    float speed;
+    int lives;
+    bool isAlive;
+};
+
+struct Enemy {
+    float x;
+    float y;
+    int width;
+    int height;
+    float speed;
+    int health;
+    bool active;
+};
+
+struct Bullet {
+    float x;
+    float y;
+    int width;
+    int height;
+    float speed;
+    bool active;
+};
+
+struct Boss {
+    float x;
+    float y;
+    int width;
+    int height;
+    float speed;
+    int health;
+    bool active;
+    float shootTimer;
+};
+
+struct GameState {
+    int score;
+    int level;
+    int highScore;
+    int hitsToKill;
+    bool gameOver;
+    bool gameWon;
+    GameStateEnum gameState;
+    bool bossActive;
+};
+
+struct GameResources {
+    Texture2D playerTexture;
+    Texture2D enemyTexture;
+    Texture2D bulletTexture;
+    Texture2D backgroundTexture;
+    Texture2D bossTexture;
+    Texture2D bossBulletTexture;
+
+    Sound shootSound;
+    Sound explodeSound;
+    Sound gameOverSound;
+    Sound winSound;
+    Sound playerHitSound;
+    Music gameTheme;
+};
+
+// -----------------------------------------------------------------------------
+// FUNCTION PROTOTYPES (ALL PARAMETERS)
+// -----------------------------------------------------------------------------
+
+// Window / resources
+void InitWindowAndResources(GameResources& res);
+void UnloadResourcesAndCloseWindow(GameResources& res);
+
+// Game initialization
+void InitPlayer(Player& player);
+void InitBullets(Bullet bullets[], int maxBullets);
+void InitBoss(Boss& boss);
+void InitBossBullets(Bullet bossBullets[], int maxBossBullets);
+bool OverlapsAnyPreviousEnemy(const Enemy enemies[], int countSoFar, float x, float y, int w, int h);
+void InitEnemiesForLevel(const GameState& game, Enemy enemies[], int& enemyCount);
+void InitGame(GameState& game, Player& player, Enemy enemies[], int& enemyCount, Bullet bullets[], int maxBullets, Boss& boss, Bullet bossBullets[], int maxBossBullets);
+
+// Main game loop
+void RunGameLoop(GameState& game, Player& player, Enemy enemies[], int& enemyCount, Bullet bullets[], int maxBullets, Boss& boss, Bullet bossBullets[], int maxBossBullets, const GameResources& res);
+
+// Screens: Start / Game Over / Win
+void DrawStartScreen(const GameState& game);
+void HandleStartScreenInput(GameState& game, Player& player, Enemy enemies[], int& enemyCount, Bullet bullets[], int maxBullets, Boss& boss, Bullet bossBullets[], int maxBossBullets);
+void DrawGameOverScreen(const GameState& game);
+void HandleGameOverInput(GameState& game, Player& player, Enemy enemies[], int& enemyCount, Bullet bullets[], int maxBullets, Boss& boss, Bullet bossBullets[], int maxBossBullets, const GameResources& res);
+void DrawWinScreen(const GameState& game);
+void HandleWinScreenInput(GameState& game, Player& player, Enemy enemies[], int& enemyCount, Bullet bullets[], int maxBullets, Boss& boss, Bullet bossBullets[], int maxBossBullets, const GameResources& res);
+
+// Game update & drawing (PLAYING/BOSS state)
+void UpdateGame(GameState& game, Player& player, Enemy enemies[], int& enemyCount, Bullet bullets[], int maxBullets, Boss& boss, Bullet bossBullets[], int maxBossBullets, const GameResources& res);
+void DrawGame(const GameState& game, const Player& player, const Enemy enemies[], int enemyCount, const Bullet bullets[], int maxBullets, const Boss& boss, const Bullet bossBullets[], int maxBossBullets, const GameResources& res);
+
+// Player movement + shooting
+void UpdatePlayer(Player& player);
+void HandlePlayerShooting(const Player& player, Bullet bullets[], int maxBullets, const GameResources& res);
+
+// Bullets & Enemies & Boss
+void UpdateBullets(Bullet bullets[], int maxBullets);
+void UpdateEnemies(Enemy enemies[], int enemyCount);
+void UpdateBoss(Boss& boss);
+void HandleBossShooting(Boss& boss, Bullet bossBullets[], int maxBossBullets, const GameResources& res);
+void UpdateBossBullets(Bullet bossBullets[], int maxBossBullets);
+
+// Collisions & lives
+bool RectanglesOverlap(float x1, float y1, int w1, int h1, float x2, float y2, int w2, int h2);
+void CheckBulletEnemyCollisions(Bullet bullets[], int maxBullets, Enemy enemies[], int enemyCount, GameState& game, const GameResources& res);
+bool CheckEnemyPlayerCollisions(const Enemy enemies[], int enemyCount, const Player& player);
+void CheckBulletBossCollisions(Bullet bullets[], int maxBullets, Boss& boss, GameState& game, const GameResources& res);
+bool CheckBossPlayerCollision(const Boss& boss, const Player& player);
+bool CheckBossBulletPlayerCollisions(const Bullet bossBullets[], int maxBossBullets, const Player& player);
+void HandlePlayerHit(GameState& game, Player& player, Enemy enemies[], int& enemyCount, Bullet bullets[], int maxBullets, Boss& boss, Bullet bossBullets[], int maxBossBullets, const GameResources& res);
+
+// HUD, scoring, level progression
+void DrawHUD(const GameState& game, const Player& player, const Boss& boss);
+void UpdateScoreAndLevel(GameState& game, Player& player, Enemy enemies[], int& enemyCount, Bullet bullets[], int maxBullets, Boss& boss, Bullet bossBullets[], int maxBossBullets, const GameResources& res);
+void ResetLevel(GameState& game, Player& player, Enemy enemies[], int& enemyCount, Bullet bullets[], int maxBullets, Boss& boss, Bullet bossBullets[], int maxBossBullets);
+void ResetGameToLevel1(GameState& game, Player& player, Enemy enemies[], int& enemyCount, Bullet bullets[], int maxBullets, Boss& boss, Bullet bossBullets[], int maxBossBullets);
+bool AreAllEnemiesDestroyed(const Enemy enemies[], int enemyCount);
+
+// Save/Load
+void SaveGame(const GameState& game, const Player& player, const Boss& boss);
+void LoadGame(GameState& game, Player& player, Boss& boss);
+
+
+// ---------------------------------------------------------
+// MAIN FUNCTION 
+// ---------------------------------------------------------
 int main()
 {
     GameResources resources = { 0 };
     InitWindowAndResources(resources);
     PlayMusicStream(resources.gameTheme);
-    SetMusicVolume(resources.gameTheme, 0.75f);
-	
+    SetMusicVolume(resources.gameTheme, 0.2f);
+
     GameState game;
     Player player;
     Enemy enemies[MAX_ENEMIES];
     Bullet bullets[MAX_BULLETS];
+    Boss boss;
+    Bullet bossBullets[MAX_BOSS_BULLETS];
     int enemyCount = 0;
 
-    InitGame(game, player, enemies, enemyCount, bullets, MAX_BULLETS);
-    RunGameLoop(game, player, enemies, enemyCount, bullets, MAX_BULLETS, resources);
+    
+    InitGame(game, player, enemies, enemyCount, bullets, MAX_BULLETS, boss, bossBullets, MAX_BOSS_BULLETS);
+    RunGameLoop(game, player, enemies, enemyCount, bullets, MAX_BULLETS, boss, bossBullets, MAX_BOSS_BULLETS, resources);
 
     UnloadResourcesAndCloseWindow(resources);
     return 0;
@@ -34,31 +194,32 @@ void InitWindowAndResources(GameResources& res)
     res.enemyTexture = LoadTexture("enemy.png");
     res.playerTexture = LoadTexture("shooter.png");
     res.backgroundTexture = LoadTexture("background.png");
-    
+    res.bossTexture = LoadTexture("boss.png");
+    res.bossBulletTexture = LoadTexture("bullet.png");
 
     InitAudioDevice();
-    res.shootSound = LoadSound("shoot.wav");       
+    res.shootSound = LoadSound("shoot.wav");
     res.explodeSound = LoadSound("explosion.wav");
     res.gameOverSound = LoadSound("gameover.wav");
     res.winSound = LoadSound("win.wav");
     res.playerHitSound = LoadSound("hit.wav");
     res.gameTheme = LoadMusicStream("theme.mp3");
-    
+
     SetTargetFPS(60);
     SetExitKey(0);
 }
 
 void UnloadResourcesAndCloseWindow(GameResources& res)
 {
-
-
-    // Unload Textures
+  
     UnloadTexture(res.bulletTexture);
     UnloadTexture(res.enemyTexture);
     UnloadTexture(res.playerTexture);
     UnloadTexture(res.backgroundTexture);
+    UnloadTexture(res.bossTexture);
+    UnloadTexture(res.bossBulletTexture);
 
-    // Unload Sounds
+
     UnloadSound(res.shootSound);
     UnloadSound(res.explodeSound);
     UnloadSound(res.gameOverSound);
@@ -66,18 +227,15 @@ void UnloadResourcesAndCloseWindow(GameResources& res)
     UnloadSound(res.playerHitSound);
     UnloadMusicStream(res.gameTheme);
 
-    CloseAudioDevice(); // <--- Close audio system
+    CloseAudioDevice();
     CloseWindow();
-
 }
 
 // ---------------------------------------------------------
 // Game initialization
 // ---------------------------------------------------------
-
 void InitPlayer(Player& player)
 {
-   
     player.width = 60;
     player.height = 60;
     player.x = SCREEN_WIDTH / 2.0f - player.width / 2.0f;
@@ -99,57 +257,103 @@ void InitBullets(Bullet bullets[], int maxBullets)
     }
 }
 
+void InitBoss(Boss& boss)
+{
+    boss.width = BOSS_WIDTH;
+    boss.height = BOSS_HEIGHT;
+    boss.x = SCREEN_WIDTH / 2.0f - boss.width / 2.0f;
+    boss.y = 50.0f;
+    boss.speed = BOSS_SPEED;
+    boss.health = BOSS_INITIAL_HEALTH;
+    boss.active = false;
+    boss.shootTimer = 1.0f;
+}
+
+void InitBossBullets(Bullet bossBullets[], int maxBossBullets)
+{
+    for (int i = 0; i < maxBossBullets; i++) {
+        bossBullets[i].active = false;
+        bossBullets[i].width = 30;
+        bossBullets[i].height = 30;
+        bossBullets[i].speed = 6.0f;
+        bossBullets[i].x = 0;
+        bossBullets[i].y = 0;
+    }
+}
+
+bool OverlapsAnyPreviousEnemy(const Enemy enemies[], int countSoFar,
+    float x, float y, int w, int h)
+{
+    for (int i = 0; i < countSoFar; i++) {
+        if (!enemies[i].active) continue;
+
+        if (RectanglesOverlap(x, y, w, h,
+            enemies[i].x, enemies[i].y,
+            enemies[i].width, enemies[i].height)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 void InitEnemiesForLevel(const GameState& game,
     Enemy enemies[], int& enemyCount)
 {
     int level = game.level;
 
-    // Number of enemies increases with level
+   
     enemyCount = 3 + level * 3;
     if (enemyCount > MAX_ENEMIES) enemyCount = MAX_ENEMIES;
 
     float baseSpeed = 1.0f + level * 0.3f;
 
+    int centerX = SCREEN_WIDTH / 2;
+    int halfRange = 250;
+    int minX = centerX - halfRange;
+    if (minX < 0) minX = 0;
+
+    int maxX = centerX + halfRange;
+    if (maxX > SCREEN_WIDTH) maxX = SCREEN_WIDTH;
+
     for (int i = 0; i < enemyCount; i++) {
         enemies[i].width = 80;
         enemies[i].height = 80;
 
-        // Spawn around the center of the screen with random x
-        int centerX = SCREEN_WIDTH / 2;
-        int halfRange = 200;
+        float x = 0;
+        float y = 0;
+        const int MAX_TRIES = 30;
+        int tries = 0;
 
-        int minX = centerX - halfRange;
-        if (minX < 0) minX = 0;
+        do {
+            x = (float)GetRandomValue(minX, maxX - enemies[i].width);
+            y = (float)GetRandomValue(60, 220);
+            tries++;
+        } while (OverlapsAnyPreviousEnemy(enemies, i, x, y,
+            enemies[i].width, enemies[i].height)
+            && tries < MAX_TRIES);
 
-        int maxX = centerX + halfRange - enemies[i].width;
-        if (maxX > SCREEN_WIDTH - enemies[i].width) {
-            maxX = SCREEN_WIDTH - enemies[i].width;
-        }
+        enemies[i].x = x;
+        enemies[i].y = y;
 
-        enemies[i].x = (float)GetRandomValue(minX, maxX);
-        enemies[i].y = (float)GetRandomValue(60, 200);
-
-        float randomOffset = (float)GetRandomValue(-3, 3) * 0.1f; // -0.3 .. +0.3
+        float randomOffset = (float)GetRandomValue(-3, 3) * 0.1f;
         enemies[i].speed = baseSpeed + randomOffset;
         if (enemies[i].speed < 0.5f) enemies[i].speed = 0.5f;
 
-        enemies[i].health = game.hitsToKill;  // NEW: how many hits for this wave
+        enemies[i].health = game.hitsToKill;
         enemies[i].active = true;
     }
 
-    // Any remaining enemies are inactive
     for (int i = enemyCount; i < MAX_ENEMIES; i++) {
         enemies[i].active = false;
         enemies[i].health = 0;
     }
 }
 
-
 void InitGame(GameState& game, Player& player,
     Enemy enemies[], int& enemyCount,
-    Bullet bullets[], int maxBullets)
+    Bullet bullets[], int maxBullets,
+    Boss& boss, Bullet bossBullets[], int maxBossBullets)
 {
-    // Default values
     game.score = 0;
     game.level = 1;
     game.highScore = 0;
@@ -157,61 +361,61 @@ void InitGame(GameState& game, Player& player,
     game.gameOver = false;
     game.gameWon = false;
     game.gameState = STATE_MENU;
+    game.bossActive = false;
 
     InitPlayer(player);
-    player.lives = 3;  // default lives
+    player.lives = 3;
 
-    // Try to load saved game (if savegame.txt doesn't exist, LoadGame does nothing)
-    LoadGame(game, player);
+    
 
-    // Now set up bullets and enemies for the (maybe updated) level
     InitBullets(bullets, maxBullets);
     InitEnemiesForLevel(game, enemies, enemyCount);
+    InitBoss(boss);
+    InitBossBullets(bossBullets, maxBossBullets);
 }
-
-
 
 // ---------------------------------------------------------
 // Main game loop
 // ---------------------------------------------------------
-// Add "const GameResources& res" here too
 void RunGameLoop(GameState& game, Player& player,
     Enemy enemies[], int& enemyCount,
-    Bullet bullets[], int maxBullets, const GameResources& res)
-
+    Bullet bullets[], int maxBullets,
+    Boss& boss, Bullet bossBullets[], int maxBossBullets, const GameResources& res)
 {
     while (!WindowShouldClose())
     {
         UpdateMusicStream(res.gameTheme);
         if (IsKeyPressed(KEY_ESCAPE)) {
-            SaveGame(game, player);
+            SaveGame(game, player, boss);
             break;
         }
 
-        // Update
+        
         if (game.gameState == STATE_MENU) {
-            HandleStartScreenInput(game, player, enemies, enemyCount, bullets, maxBullets);
+           
+            HandleStartScreenInput(game, player, enemies, enemyCount, bullets, maxBullets, boss, bossBullets, MAX_BOSS_BULLETS);
         }
-        else if (game.gameState == STATE_PLAYING) {
-            UpdateGame(game, player, enemies, enemyCount, bullets, maxBullets, res);
+        else if (game.gameState == STATE_PLAYING || game.gameState == STATE_BOSS_FIGHT) {
+            UpdateGame(game, player, enemies, enemyCount, bullets, maxBullets, boss, bossBullets, MAX_BOSS_BULLETS, res);
         }
         else if (game.gameState == STATE_GAME_OVER) {
-            HandleGameOverInput(game, player, enemies, enemyCount, bullets, maxBullets, res);
+           
+            HandleGameOverInput(game, player, enemies, enemyCount, bullets, maxBullets, boss, bossBullets, MAX_BOSS_BULLETS, res);
         }
         else if (game.gameState == STATE_WIN) {
-            HandleWinScreenInput(game, player, enemies, enemyCount, bullets, maxBullets, res);
+           
+            HandleWinScreenInput(game, player, enemies, enemyCount, bullets, maxBullets, boss, bossBullets, MAX_BOSS_BULLETS, res);
         }
 
-
-        // Draw
+     
         BeginDrawing();
         ClearBackground(BLACK);
 
         if (game.gameState == STATE_MENU) {
             DrawStartScreen(game);
         }
-        else if (game.gameState == STATE_PLAYING) {
-            DrawGame(game, player, enemies, enemyCount, bullets, maxBullets, res);
+        else if (game.gameState == STATE_PLAYING || game.gameState == STATE_BOSS_FIGHT) {
+            DrawGame(game, player, enemies, enemyCount, bullets, maxBullets, boss, bossBullets, MAX_BOSS_BULLETS, res);
         }
         else if (game.gameState == STATE_GAME_OVER) {
             DrawGameOverScreen(game);
@@ -255,13 +459,13 @@ void DrawStartScreen(const GameState& game)
     DrawText("- To reach the next level: score >= level * 10.", 60, y, 20, LIGHTGRAY); y += 24;
     DrawText("- If you destroy all enemies but don't have", 60, y, 20, LIGHTGRAY); y += 20;
     DrawText("  enough score, a new, tougher wave spawns.", 60, y, 20, LIGHTGRAY); y += 24;
-    DrawText("- There are 10 levels. Clear them all to win.", 60, y, 20, LIGHTGRAY); y += 32;
+    DrawText("- There are 5 levels, then the BOSS FIGHT starts.", 60, y, 20, LIGHTGRAY); y += 32;
 
     // Menu options
     DrawText("MENU", 60, y, 24, YELLOW);
     y += 30;
-    DrawText("Press N     - New Game (start from Level 1)", 60, y, 20, GREEN); y += 24;
-    DrawText("Press L     - Load Saved Game (if available)", 60, y, 20, GREEN); y += 24;
+    DrawText("Press N      - New Game (start from Level 1)", 60, y, 20, GREEN); y += 24;
+    DrawText("Press L      - Load Saved Game (if available)", 60, y, 20, GREEN); y += 24;
     DrawText("Press ENTER - Same as New Game", 60, y, 20, GREEN); y += 24;
 
     // High score display
@@ -270,34 +474,34 @@ void DrawStartScreen(const GameState& game)
 }
 
 
-
 void HandleStartScreenInput(GameState& game, Player& player,
     Enemy enemies[], int& enemyCount,
-    Bullet bullets[], int maxBullets)
+    Bullet bullets[], int maxBullets,
+    Boss& boss, Bullet bossBullets[], int maxBossBullets)
 {
-    // ENTER behaves like New Game for convenience
     if (IsKeyPressed(KEY_ENTER) || IsKeyPressed(KEY_N)) {
-        // Start a completely new game from level 1
-        ResetGameToLevel1(game, player, enemies, enemyCount, bullets, maxBullets);
+        ResetGameToLevel1(game, player, enemies, enemyCount, bullets, maxBullets, boss, bossBullets, maxBossBullets);
         game.gameState = STATE_PLAYING;
     }
     else if (IsKeyPressed(KEY_L)) {
-        // Try to load from file
-        LoadGame(game, player);                 // restores score, level, hitsToKill, lives
+        LoadGame(game, player, boss);
 
-        // Re-create bullets and enemies for the loaded level
         InitBullets(bullets, maxBullets);
-        InitEnemiesForLevel(game, enemies, enemyCount);
+        InitBossBullets(bossBullets, maxBossBullets);
 
-        // Make sure basic flags are correct
-        player.isAlive = true;
-        game.gameOver = false;
-        game.gameWon = false;
-
-        game.gameState = STATE_PLAYING;
+        if (game.bossActive) {
+            boss.active = true;
+            game.gameState = STATE_BOSS_FIGHT;
+        }
+        else {
+            InitEnemiesForLevel(game, enemies, enemyCount);
+            player.isAlive = true;
+            game.gameOver = false;
+            game.gameWon = false;
+            game.gameState = STATE_PLAYING;
+        }
     }
 }
-
 
 void DrawGameOverScreen(const GameState& game)
 {
@@ -320,10 +524,11 @@ void DrawGameOverScreen(const GameState& game)
 
 void HandleGameOverInput(GameState& game, Player& player,
     Enemy enemies[], int& enemyCount,
-    Bullet bullets[], int maxBullets, const GameResources& res)
+    Bullet bullets[], int maxBullets,
+    Boss& boss, Bullet bossBullets[], int maxBossBullets, const GameResources& res)
 {
     if (IsKeyPressed(KEY_ENTER)) {
-        ResetGameToLevel1(game, player, enemies, enemyCount, bullets, maxBullets);
+        ResetGameToLevel1(game, player, enemies, enemyCount, bullets, maxBullets, boss, bossBullets, maxBossBullets);
         game.gameState = STATE_PLAYING;
         PlayMusicStream(res.gameTheme);
     }
@@ -350,10 +555,11 @@ void DrawWinScreen(const GameState& game)
 
 void HandleWinScreenInput(GameState& game, Player& player,
     Enemy enemies[], int& enemyCount,
-    Bullet bullets[], int maxBullets, const GameResources& res)
+    Bullet bullets[], int maxBullets,
+    Boss& boss, Bullet bossBullets[], int maxBossBullets, const GameResources& res)
 {
     if (IsKeyPressed(KEY_ENTER)) {
-        ResetGameToLevel1(game, player, enemies, enemyCount, bullets, maxBullets);
+        ResetGameToLevel1(game, player, enemies, enemyCount, bullets, maxBullets, boss, bossBullets, maxBossBullets);
         game.gameState = STATE_PLAYING;
         PlayMusicStream(res.gameTheme);
     }
@@ -362,89 +568,123 @@ void HandleWinScreenInput(GameState& game, Player& player,
 // ---------------------------------------------------------
 // Game update & drawing (PLAYING state)
 // ---------------------------------------------------------
-// Change signature to accept GameResources
 void UpdateGame(GameState& game, Player& player,
     Enemy enemies[], int& enemyCount,
-    Bullet bullets[], int maxBullets, const GameResources& res)
+    Bullet bullets[], int maxBullets,
+    Boss& boss, Bullet bossBullets[], int maxBossBullets, const GameResources& res)
 {
     UpdatePlayer(player);
-
-    // Pass 'res' for shooting sound
     HandlePlayerShooting(player, bullets, maxBullets, res);
-
     UpdateBullets(bullets, maxBullets);
-    UpdateEnemies(enemies, enemyCount);
 
-    // Pass 'res' for explosion sounds
-    CheckBulletEnemyCollisions(bullets, maxBullets, enemies, enemyCount, game, res);
+    if (game.gameState == STATE_PLAYING) {
+        UpdateEnemies(enemies, enemyCount);
+        CheckBulletEnemyCollisions(bullets, maxBullets, enemies, enemyCount, game, res);
+        if (CheckEnemyPlayerCollisions(enemies, enemyCount, player)) {
+            HandlePlayerHit(game, player, enemies, enemyCount, bullets, maxBullets, boss, bossBullets, maxBossBullets, res);
+        }
+    }
+    else if (game.gameState == STATE_BOSS_FIGHT) {
+        UpdateBoss(boss);
+        HandleBossShooting(boss, bossBullets, maxBossBullets, res);
+        UpdateBossBullets(bossBullets, maxBossBullets);
 
-    if (CheckEnemyPlayerCollisions(enemies, enemyCount, player)) {
-        // Pass 'res' for game over sound
-        HandlePlayerHit(game, player, enemies, enemyCount, bullets, maxBullets, res);
+        CheckBulletBossCollisions(bullets, maxBullets, boss, game, res);
+
+        if (CheckBossPlayerCollision(boss, player) || CheckBossBulletPlayerCollisions(bossBullets, maxBossBullets, player)) {
+            HandlePlayerHit(game, player, enemies, enemyCount, bullets, maxBullets, boss, bossBullets, maxBossBullets, res);
+        }
     }
 
-    UpdateScoreAndLevel(game, player, enemies, enemyCount, bullets, maxBullets,res);
+    UpdateScoreAndLevel(game, player, enemies, enemyCount, bullets, maxBullets, boss, bossBullets, maxBossBullets, res);
 }
 
 void DrawGame(const GameState& game, const Player& player,
     const Enemy enemies[], int enemyCount,
-    const Bullet bullets[], int maxBullets, const GameResources& res) 
-
+    const Bullet bullets[], int maxBullets,
+    const Boss& boss, const Bullet bossBullets[], int maxBossBullets, const GameResources& res)
 {
+    // Draw Background
     if (res.backgroundTexture.id > 0) {
         Rectangle sourceRec = { 0.0f, 0.0f, (float)res.backgroundTexture.width, (float)res.backgroundTexture.height };
-        Rectangle destRec = { 0, 0, SCREEN_WIDTH, SCREEN_HEIGHT }; // Fit to screen
+        Rectangle destRec = { 0, 0, SCREEN_WIDTH, SCREEN_HEIGHT };
         Vector2 origin = { 0, 0 };
         DrawTexturePro(res.backgroundTexture, sourceRec, destRec, origin, 0.0f, WHITE);
     }
-    if (player.isAlive) {
 
+    // Draw Player
+    if (player.isAlive) {
         Rectangle sourceRec = { 0.0f, 0.0f, (float)res.playerTexture.width, (float)res.playerTexture.height };
         Rectangle destRec = { player.x, player.y, player.width, player.height };
         Vector2 origin = { 0, 0 };
         DrawTexturePro(res.playerTexture, sourceRec, destRec, origin, 0.0f, WHITE);
     }
 
-    // Inside DrawGame function...
-
+    // Draw Enemies 
     for (int i = 0; i < enemyCount; i++) {
-        if (enemies[i].active) {
-            // Use the texture from the "res" bucket
+        if (enemies[i].active && game.gameState == STATE_PLAYING) {
             if (res.enemyTexture.id > 0) {
                 Rectangle source = { 0, 0, (float)res.enemyTexture.width, (float)res.enemyTexture.height };
                 Rectangle dest = { enemies[i].x, enemies[i].y, enemies[i].width, enemies[i].height };
                 Vector2 origin = { 0, 0 };
-
                 DrawTexturePro(res.enemyTexture, source, dest, origin, 0.0f, WHITE);
             }
-            
         }
     }
 
-   
-    // Draw Bullets
+    // Draw Bullets (Player)
     for (int i = 0; i < maxBullets; i++) {
         if (bullets[i].active) {
-
-            // Check if texture exists
             if (res.bulletTexture.id > 0) {
                 Rectangle source = { 0, 0, (float)res.bulletTexture.width, (float)res.bulletTexture.height };
-
-                // This scales the image to fit your bullet's width (5) and height (10)
                 Rectangle dest = { bullets[i].x, bullets[i].y, bullets[i].width, bullets[i].height };
-
                 Vector2 origin = { 0, 0 };
                 DrawTexturePro(res.bulletTexture, source, dest, origin, 0.0f, WHITE);
             }
             else {
-                // Fallback (Yellow Rectangle)
                 DrawRectangle((int)bullets[i].x, (int)bullets[i].y, (int)bullets[i].width, (int)bullets[i].height, YELLOW);
             }
         }
     }
-    
 
-    DrawHUD(game, player);
+    // Draw Boss
+    if (boss.active) {
+        if (res.bossTexture.id > 0) {
+            Rectangle source = { 0, 0, (float)res.bossTexture.width, (float)res.bossTexture.height };
+            Rectangle dest = { boss.x, boss.y, boss.width, boss.height };
+            Vector2 origin = { 0, 0 };
+            DrawTexturePro(res.bossTexture, source, dest, origin, 0.0f, WHITE);
+        }
+        else {
+            DrawRectangle((int)boss.x, (int)boss.y, (int)boss.width, (int)boss.height, PURPLE);
+        }
+    }
+
+    // Draw Boss Bullets
+    for (int i = 0; i < maxBossBullets; i++) {
+        if (bossBullets[i].active) {
+            if (res.bossBulletTexture.id > 0) {
+                Rectangle source = { 0, 0, (float)res.bossBulletTexture.width, (float)res.bossBulletTexture.height };
+                Rectangle dest = { bossBullets[i].x, bossBullets[i].y, bossBullets[i].width, bossBullets[i].height };
+                Vector2 origin = { 0, 0 };
+                DrawTexturePro(res.bossBulletTexture, source, dest, origin, 0.0f, RED);
+            }
+            else {
+                DrawRectangle((int)bossBullets[i].x, (int)bossBullets[i].y, (int)bossBullets[i].width, (int)bossBullets[i].height, RED);
+            }
+        }
+    }
+
+    DrawHUD(game, player, boss);
+}
+bool AreAllEnemiesDestroyed(const Enemy enemies[], int enemyCount)
+{
+    for (int i = 0; i < enemyCount; i++) {
+        if (enemies[i].active) {
+            return false;
+        }
+    }
+    return true;
 }
 
 // ---------------------------------------------------------
@@ -461,6 +701,7 @@ void UpdatePlayer(Player& player)
         player.x += player.speed;
     }
 
+   
     if (player.x < 0) player.x = 0;
     if (player.x + player.width > SCREEN_WIDTH) {
         player.x = SCREEN_WIDTH - player.width;
@@ -468,16 +709,15 @@ void UpdatePlayer(Player& player)
 }
 
 void HandlePlayerShooting(const Player& player,
-    Bullet bullets[], int maxBullets, const GameResources& res) // Add 'res'
+    Bullet bullets[], int maxBullets, const GameResources& res)
 {
     if (IsKeyPressed(KEY_SPACE)) {
         for (int i = 0; i < maxBullets; i++) {
             if (!bullets[i].active) {
-                // Play sound
                 PlaySound(res.shootSound);
 
                 bullets[i].active = true;
-                bullets[i].x = player.x + player.width / 2 - bullets[i].width / 2;
+                bullets[i].x = player.x + player.width / 2.0f - bullets[i].width / 2.0f;
                 bullets[i].y = player.y - bullets[i].height;
                 break;
             }
@@ -486,7 +726,7 @@ void HandlePlayerShooting(const Player& player,
 }
 
 // ---------------------------------------------------------
-// Bullets & Enemies
+// Bullets & Enemies & Boss
 // ---------------------------------------------------------
 void UpdateBullets(Bullet bullets[], int maxBullets)
 {
@@ -513,6 +753,57 @@ void UpdateEnemies(Enemy enemies[], int enemyCount)
     }
 }
 
+void UpdateBoss(Boss& boss)
+{
+    if (!boss.active) return;
+
+    boss.x += boss.speed;
+
+    if (boss.x + boss.width > SCREEN_WIDTH || boss.x < 0) {
+        boss.speed *= -1;
+    }
+}
+
+void HandleBossShooting(Boss& boss, Bullet bossBullets[], int maxBossBullets, const GameResources& res)
+{
+    if (!boss.active) return;
+
+    boss.shootTimer -= GetFrameTime();
+
+    if (boss.shootTimer <= 0) {
+        PlaySound(res.shootSound);
+
+        boss.shootTimer = 1.0f + (float)boss.health / BOSS_INITIAL_HEALTH * 0.5f;
+        if (boss.shootTimer < 0.3f) boss.shootTimer = 0.3f;
+
+        int bulletsFired = 0;
+        for (int i = 0; i < maxBossBullets && bulletsFired < 3; i++) {
+            if (!bossBullets[i].active) {
+                bossBullets[i].active = true;
+                bossBullets[i].x = boss.x + boss.width / 2.0f - bossBullets[i].width / 2.0f;
+                bossBullets[i].y = boss.y + boss.height;
+
+                if (bulletsFired == 0) bossBullets[i].x -= 15;
+                if (bulletsFired == 2) bossBullets[i].x += 15;
+
+                bulletsFired++;
+            }
+        }
+    }
+}
+
+void UpdateBossBullets(Bullet bossBullets[], int maxBossBullets)
+{
+    for (int i = 0; i < maxBossBullets; i++) {
+        if (bossBullets[i].active) {
+            bossBullets[i].y += bossBullets[i].speed;
+            if (bossBullets[i].y > SCREEN_HEIGHT) {
+                bossBullets[i].active = false;
+            }
+        }
+    }
+}
+
 // ---------------------------------------------------------
 // Collisions & lives
 // ---------------------------------------------------------
@@ -530,7 +821,7 @@ bool RectanglesOverlap(float x1, float y1, int w1, int h1,
 
 void CheckBulletEnemyCollisions(Bullet bullets[], int maxBullets,
     Enemy enemies[], int enemyCount,
-    GameState& game, const GameResources& res) // Add 'res'
+    GameState& game, const GameResources& res)
 {
     for (int i = 0; i < maxBullets; i++) {
         if (!bullets[i].active) continue;
@@ -546,7 +837,6 @@ void CheckBulletEnemyCollisions(Bullet bullets[], int maxBullets,
                 bullets[i].active = false;
                 enemies[j].health--;
 
-                // Play hit/explosion sound
                 PlaySound(res.explodeSound);
 
                 if (enemies[j].health <= 0) {
@@ -558,6 +848,37 @@ void CheckBulletEnemyCollisions(Bullet bullets[], int maxBullets,
                 }
                 break;
             }
+        }
+    }
+}
+
+void CheckBulletBossCollisions(Bullet bullets[], int maxBullets,
+    Boss& boss, GameState& game, const GameResources& res)
+{
+    if (!boss.active) return;
+
+    for (int i = 0; i < maxBullets; i++) {
+        if (!bullets[i].active) continue;
+
+        if (RectanglesOverlap(bullets[i].x, bullets[i].y,
+            bullets[i].width, bullets[i].height,
+            boss.x, boss.y,
+            boss.width, boss.height)) {
+
+            bullets[i].active = false;
+            boss.health--;
+
+            PlaySound(res.explodeSound);
+
+            if (boss.health <= 0) {
+                boss.active = false;
+                game.score += 10;
+                game.gameWon = true;
+                game.gameState = STATE_WIN;
+                StopMusicStream(res.gameTheme);
+                PlaySound(res.winSound);
+            }
+            break;
         }
     }
 }
@@ -580,9 +901,42 @@ bool CheckEnemyPlayerCollisions(const Enemy enemies[], int enemyCount,
     return false;
 }
 
+bool CheckBossPlayerCollision(const Boss& boss, const Player& player)
+{
+    if (!boss.active || !player.isAlive) return false;
+
+    return RectanglesOverlap(player.x, player.y,
+        player.width, player.height,
+        boss.x, boss.y,
+        boss.width, boss.height);
+}
+
+bool CheckBossBulletPlayerCollisions(const Bullet bossBullets[], int maxBossBullets,
+    const Player& player)
+{
+    if (!player.isAlive) return false;
+
+    for (int i = 0; i < maxBossBullets; i++) {
+        if (!bossBullets[i].active) continue;
+
+        if (RectanglesOverlap(player.x, player.y,
+            player.width, player.height,
+            bossBullets[i].x, bossBullets[i].y,
+            bossBullets[i].width, bossBullets[i].height)) {
+
+            
+            ((Bullet*)bossBullets)[i].active = false;
+            return true;
+        }
+    }
+    return false;
+}
+
+
 void HandlePlayerHit(GameState& game, Player& player,
     Enemy enemies[], int& enemyCount,
-    Bullet bullets[], int maxBullets, const GameResources& res)
+    Bullet bullets[], int maxBullets,
+    Boss& boss, Bullet bossBullets[], int maxBossBullets, const GameResources& res)
 {
     player.lives--;
     if (player.lives > 0) {
@@ -597,64 +951,83 @@ void HandlePlayerHit(GameState& game, Player& player,
         return;
     }
 
-    // Reset player
+    // Reset player position
     player.isAlive = true;
     player.x = SCREEN_WIDTH / 2.0f - player.width / 2.0f;
     player.y = SCREEN_HEIGHT - 60.0f;
 
-    // Clear bullets
+    // Clear player bullets
     for (int i = 0; i < maxBullets; i++) {
         bullets[i].active = false;
     }
 
-    // Reset enemies for current level & current hitsToKill
-    InitEnemiesForLevel(game, enemies, enemyCount);
+    // Clear boss bullets
+    for (int i = 0; i < maxBossBullets; i++) {
+        bossBullets[i].active = false;
+    }
+
+
+    if (game.gameState == STATE_PLAYING) {
+        InitEnemiesForLevel(game, enemies, enemyCount);
+    }
+    else if (game.gameState == STATE_BOSS_FIGHT) {
+      
+        boss.x = SCREEN_WIDTH / 2.0f - boss.width / 2.0f;
+        boss.y = 50.0f;
+        boss.shootTimer = 1.0f; // Reset shoot timer
+    }
 }
-
-
 // ---------------------------------------------------------
 // HUD, scoring, level progression
 // ---------------------------------------------------------
-void DrawHUD(const GameState& game, const Player& player)
+void DrawHUD(const GameState& game, const Player& player, const Boss& boss)
 {
     DrawText(TextFormat("Score: %d", game.score),
         10, 10, 20, RAYWHITE);
 
-    DrawText(TextFormat("Level: %d", game.level),
-        10, 35, 20, RAYWHITE);
+    if (game.gameState == STATE_BOSS_FIGHT) {
+        DrawText("Level: BOSS", 10, 35, 20, RED);
+    }
+    else {
+        DrawText(TextFormat("Level: %d", game.level),
+            10, 35, 20, RAYWHITE);
+    }
 
     DrawText(TextFormat("Lives: %d", player.lives),
         10, 60, 20, RAYWHITE);
 
     DrawText(TextFormat("Best: %d", game.highScore),
         SCREEN_WIDTH - 180, 10, 20, GREEN);
-}
 
+    if (boss.active) {
+        DrawText(TextFormat("BOSS HEALTH: %d", boss.health),
+            SCREEN_WIDTH / 2 - 100, 10, 20, RED);
+    }
+}
 
 void UpdateScoreAndLevel(GameState& game, Player& player,
     Enemy enemies[], int& enemyCount,
-    Bullet bullets[], int maxBullets, const GameResources& res)
+    Bullet bullets[], int maxBullets,
+    Boss& boss, Bullet bossBullets[], int maxBossBullets, const GameResources& res)
 {
     bool allDead = AreAllEnemiesDestroyed(enemies, enemyCount);
 
-    // 1) Check if we reached the score threshold for this level
-    if (game.score >= game.level * 10) {
+    if (game.score >= game.level * 10 && game.gameState == STATE_PLAYING) {
         game.level++;
 
         if (game.level > MAX_LEVEL) {
-            game.gameWon = true;
-            game.gameState = STATE_WIN;
-            StopMusicStream(res.gameTheme);
-            PlaySound(res.winSound);
+            game.hitsToKill = 1;
+            InitBoss(boss);
+            boss.active = true;
+            game.bossActive = true;
+            game.gameState = STATE_BOSS_FIGHT;
         }
         else {
-            // New level starts with easier enemies again
             game.hitsToKill = 1;
-            ResetLevel(game, player, enemies, enemyCount, bullets, maxBullets);
+            ResetLevel(game, player, enemies, enemyCount, bullets, maxBullets, boss, bossBullets, maxBossBullets);
         }
     }
-    // 2) Not enough score, but all enemies are dead ? spawn another, harder wave
-    else if (allDead) {
+    else if (allDead && game.gameState == STATE_PLAYING) {
         game.hitsToKill++;
         InitEnemiesForLevel(game, enemies, enemyCount);
     }
@@ -662,11 +1035,17 @@ void UpdateScoreAndLevel(GameState& game, Player& player,
 
 void ResetLevel(GameState& game, Player& player,
     Enemy enemies[], int& enemyCount,
-    Bullet bullets[], int maxBullets)
+    Bullet bullets[], int maxBullets,
+    Boss& boss, Bullet bossBullets[], int maxBossBullets)
 {
     for (int i = 0; i < maxBullets; i++) {
         bullets[i].active = false;
     }
+
+    for (int i = 0; i < MAX_BOSS_BULLETS; i++) {
+        bossBullets[i].active = false;
+    }
+    InitBoss(boss);
 
     InitEnemiesForLevel(game, enemies, enemyCount);
 
@@ -675,69 +1054,68 @@ void ResetLevel(GameState& game, Player& player,
     player.isAlive = true;
 }
 
-
 void ResetGameToLevel1(GameState& game, Player& player,
     Enemy enemies[], int& enemyCount,
-    Bullet bullets[], int maxBullets)
+    Bullet bullets[], int maxBullets,
+    Boss& boss, Bullet bossBullets[], int maxBossBullets)
 {
-    game.score =0;
+    game.score = 0;
     game.level = 1;
     game.gameOver = false;
     game.gameWon = false;
-    game.highScore ; 
-    game.hitsToKill = 1; // NEW: reset enemy health for new game
+    game.hitsToKill = 1;
+    game.bossActive = false;
 
     InitPlayer(player);
     InitBullets(bullets, maxBullets);
     InitEnemiesForLevel(game, enemies, enemyCount);
+    InitBoss(boss);
+    InitBossBullets(bossBullets, maxBossBullets);
 }
 
-bool AreAllEnemiesDestroyed(const Enemy enemies[], int enemyCount)
-{
-    for (int i = 0; i < enemyCount; i++) {
-        if (enemies[i].active) {
-            return false;
-        }
-    }
-    return true;
-}
-
-void SaveGame(const GameState& game, const Player& player)
+void SaveGame(const GameState& game, const Player& player, const Boss& boss)
 {
     ofstream file("savegame.txt");
     if (!file.is_open()) {
         return;
     }
 
-    // Save: score, level, highScore, hitsToKill, lives
     file << game.score << ' '
         << game.level << ' '
         << game.highScore << ' '
         << game.hitsToKill << ' '
-        << player.lives << '\n';
+        << player.lives << ' '
+        << game.bossActive << '\n';
 
     file.close();
 }
 
-void LoadGame(GameState& game, Player& player)
+void LoadGame(GameState& game, Player& player, Boss& boss)
 {
     ifstream file("savegame.txt");
     if (!file.is_open()) {
-        // No save file yet
         return;
     }
 
     int score, level, highScore, hitsToKill, lives;
-    if (file >> score >> level >> highScore >> hitsToKill >> lives) {
+    int bossActiveInt = 0;
+
+    if (file >> score >> level >> highScore >> hitsToKill >> lives >> bossActiveInt) {
         game.score = score;
         game.level = level;
         game.highScore = highScore;
         game.hitsToKill = hitsToKill;
         player.lives = lives;
+        game.bossActive = (bool)bossActiveInt;
 
-        if (game.level < 1)         game.level = 1;
-        if (game.level > MAX_LEVEL) game.level = MAX_LEVEL;
-        if (player.lives < 1)       player.lives = 1;
+        if (game.level < 1) game.level = 1;
+        if (game.level > MAX_LEVEL + 1) game.level = MAX_LEVEL + 1;
+        if (player.lives < 1) player.lives = 1;
+
+        if (game.bossActive) {
+            game.gameState = STATE_BOSS_FIGHT;
+            InitBoss(boss);
+        }
     }
 
     file.close();
